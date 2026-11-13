@@ -144,6 +144,7 @@ input[type=range]{width:100%;accent-color:var(--cue)}
     <span id="curTitle">Roteiro</span>
   </button>
   <div class="spacer"></div>
+  <div class="chip" id="resChip" hidden style="font-variant-numeric:tabular-nums"></div>
   <div class="timer" id="timer" hidden>00:00</div>
   <button class="icon-btn" id="openSet" aria-label="Ajustes do teleprompter">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
@@ -225,6 +226,7 @@ input[type=range]{width:100%;accent-color:var(--cue)}
     <div class="grab"></div>
     <div class="sheet-head"><h2>Vídeo gravado</h2><div class="spacer"></div><span id="resInfo" class="meta"></span></div>
     <video id="resVideo" controls playsinline></video>
+    <p class="hint" id="resDetail"></p>
     <div class="res-actions">
       <button class="txt-btn primary" id="resSave">Salvar no iPhone</button>
       <button class="txt-btn" id="resAgain">Descartar e gravar de novo</button>
@@ -299,19 +301,36 @@ input[type=range]{width:100%;accent-color:var(--cue)}
     camMsg('Ligando a câmera…');
     try {
       stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: facing, width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } },
+        video: { facingMode: facing, width: { ideal: 3840 }, height: { ideal: 2160 }, frameRate: { ideal: 30 } },
         audio: { echoCancellation: true, noiseSuppression: true }
       });
       cam.srcObject = stream;
       cam.classList.toggle('mirror', facing === 'user');
       await cam.play().catch(() => {});
       camMsg('');
+      showRes();
       lockScreen();
     } catch (e) {
       camMsg(e.name === 'NotAllowedError'
         ? 'A câmera ou o microfone foram bloqueados. No iPhone: Ajustes › Safari › Câmera e Microfone › Permitir, depois toque abaixo.'
         : 'Não consegui abrir a câmera (' + e.name + ').', true);
     }
+  }
+  /* resolução real entregue pelo iPhone */
+  let resLabel = '';
+  function readRes() {
+    const tr = stream?.getVideoTracks()[0]; const st = tr?.getSettings?.() || {};
+    const w = cam.videoWidth || st.width || 0, h = cam.videoHeight || st.height || 0;
+    if (!w || !h) return '';
+    const short = Math.min(w, h);
+    const name = short >= 2160 ? '4K' : short >= 1440 ? '1440p' : short >= 1080 ? '1080p' : short >= 720 ? '720p' : short + 'p';
+    const fps = st.frameRate ? ' · ' + Math.round(st.frameRate) + 'fps' : '';
+    return { text: name + fps, detail: w + '×' + h + fps, pixels: w * h };
+  }
+  function showRes() {
+    const upd = () => { const r = readRes(); if (!r) return; resLabel = r.detail; $('#resChip').textContent = r.text; $('#resChip').title = r.detail; $('#resChip').hidden = false; };
+    if (cam.videoWidth) upd(); else cam.addEventListener('loadedmetadata', upd, { once: true });
+    cam.addEventListener('resize', upd);
   }
   async function lockScreen() { try { wake = await navigator.wakeLock?.request('screen'); } catch {} }
   $('#camRetry').onclick = startCamera;
@@ -352,7 +371,9 @@ input[type=range]{width:100%;accent-color:var(--cue)}
     scroller.scrollTop = 0; pos = 0; stopRoll();
     await countdown();
     chunks = [];
-    try { rec = new MediaRecorder(stream, mime ? { mimeType: mime, videoBitsPerSecond: 8e6 } : { videoBitsPerSecond: 8e6 }); }
+    const px = readRes()?.pixels || 0;
+    const bps = px >= 3840 * 2160 * 0.9 ? 40e6 : px >= 2560 * 1440 * 0.9 ? 20e6 : px >= 1920 * 1080 * 0.9 ? 12e6 : 8e6;
+    try { rec = new MediaRecorder(stream, mime ? { mimeType: mime, videoBitsPerSecond: bps } : { videoBitsPerSecond: bps }); }
     catch { rec = new MediaRecorder(stream); }
     mime = rec.mimeType || mime || 'video/mp4';
     rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
@@ -373,6 +394,7 @@ input[type=range]{width:100%;accent-color:var(--cue)}
     $('#resVideo').src = lastUrl;
     const secs = (Date.now() - t0) / 1000;
     $('#resInfo').textContent = fmt(secs) + ' · ' + (lastBlob.size / 1048576).toFixed(1) + ' MB';
+    $('#resDetail').textContent = 'Resolução gravada: ' + (resLabel || 'não informada pelo navegador') + ' · ' + (lastBlob.type.includes('mp4') ? 'MP4' : 'WebM');
     open('#resSheet');
   }
   $('#recBtn').onclick = () => { if (busy) return; recording ? stopRec() : startRec(); };
