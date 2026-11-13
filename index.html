@@ -1,0 +1,482 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Prompter">
+<meta name="theme-color" content="#0c0e0d">
+<title>Prompter de Bolso</title>
+<link rel="apple-touch-icon" href="icon.png">
+<link rel="manifest" href="manifest.json">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Inter:wght@400;500;600&display=swap">
+<style>
+/* Layout: câmera em tela cheia, faixa do roteiro colada no topo (perto da lente), controles no rodapé */
+:root{
+  --ink:#0c0e0d;          /* fundo */
+  --glass:rgba(12,14,13,.62);
+  --panel:#171a19;
+  --line:#2a2f2d;
+  --text:#f2f4f1;
+  --muted:#9aa39e;
+  --rec:#ff3b30;
+  --cue:#ffd34d;          /* linha de leitura */
+  --font-ui:"Inter",-apple-system,system-ui,sans-serif;
+  --font-read:"Atkinson Hyperlegible","Inter",-apple-system,sans-serif;
+  --prompter-h:42vh;
+  --read-at:28%;          /* posição da linha de leitura dentro da faixa */
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;background:var(--ink);color:var(--text);font-family:var(--font-ui);
+  -webkit-text-size-adjust:100%;overscroll-behavior:none;touch-action:manipulation}
+body{overflow:hidden;position:fixed;inset:0}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;-webkit-tap-highlight-color:transparent}
+button:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid var(--cue);outline-offset:2px}
+[hidden]{display:none!important}
+
+/* câmera */
+#cam{position:fixed;inset:0;width:100%;height:100%;object-fit:cover;background:#000}
+#cam.mirror{transform:scaleX(-1)}
+#camMsg{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom,0px) + 120px);z-index:4;display:grid;place-items:center;padding:24px;text-align:center;color:var(--muted);line-height:1.5}
+#camMsg button{margin-top:14px;padding:10px 18px;border-radius:999px;background:var(--text);color:var(--ink);font-weight:600}
+
+/* topo */
+.top{position:fixed;top:0;left:0;right:0;z-index:5;display:flex;align-items:center;gap:8px;
+  padding:calc(env(safe-area-inset-top,0px) + 6px) max(12px,env(safe-area-inset-right,0px)) 6px max(12px,env(safe-area-inset-left,0px))}
+.chip{display:flex;align-items:center;gap:6px;min-height:36px;padding:0 12px;border-radius:999px;background:var(--glass);
+  font-size:14px;font-weight:500;max-width:62vw}
+.chip span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.spacer{flex:1}
+.icon-btn{width:40px;height:40px;border-radius:999px;background:var(--glass);display:grid;place-items:center}
+.icon-btn svg{width:22px;height:22px}
+.timer{display:flex;align-items:center;gap:6px;padding:0 12px;min-height:36px;border-radius:999px;background:var(--rec);
+  font-weight:600;font-variant-numeric:tabular-nums}
+.timer::before{content:"";width:8px;height:8px;border-radius:50%;background:#fff;animation:blink 1s infinite}
+@keyframes blink{50%{opacity:.25}}
+
+/* faixa do teleprompter */
+.prompter{position:fixed;left:0;right:0;top:calc(env(safe-area-inset-top,0px) + 50px);height:var(--prompter-h);z-index:3;
+  background:linear-gradient(to bottom,rgba(0,0,0,var(--bg-a,.6)) 0%,rgba(0,0,0,var(--bg-a,.6)) 82%,rgba(0,0,0,0) 100%)}
+.scroller{position:absolute;inset:0;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;
+  -webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 12%,#000 80%,transparent 100%);
+  mask-image:linear-gradient(to bottom,transparent 0,#000 12%,#000 80%,transparent 100%)}
+.scroller::-webkit-scrollbar{display:none}
+.script{font-family:var(--font-read);font-weight:700;line-height:1.35;letter-spacing:.005em;
+  padding:calc(var(--prompter-h) * .28) max(20px,env(safe-area-inset-right,0px)) var(--prompter-h) max(20px,env(safe-area-inset-left,0px));
+  text-shadow:0 1px 3px rgba(0,0,0,.6);text-wrap:pretty}
+.script p{margin:0 0 .7em}
+.script.flip{transform:scaleX(-1)}
+.script .empty{color:var(--muted);font-weight:400}
+.cue{position:absolute;left:0;right:0;top:var(--read-at);height:0;pointer-events:none}
+.cue::before,.cue::after{content:"";position:absolute;top:-7px;border:7px solid transparent}
+.cue::before{left:2px;border-left-color:var(--cue)}
+.cue::after{right:2px;border-right-color:var(--cue)}
+
+/* rodapé */
+.bottom{position:fixed;left:0;right:0;bottom:0;z-index:5;display:grid;grid-template-columns:1fr auto 1fr;align-items:center;
+  padding:16px max(20px,env(safe-area-inset-right,0px)) calc(env(safe-area-inset-bottom,0px) + 18px) max(20px,env(safe-area-inset-left,0px));
+  background:linear-gradient(to top,rgba(0,0,0,.55),rgba(0,0,0,0))}
+.bottom .side{display:flex;gap:12px}
+.bottom .side.right{justify-content:flex-end}
+.rec{width:76px;height:76px;border-radius:50%;border:4px solid #fff;display:grid;place-items:center}
+.rec i{width:58px;height:58px;border-radius:50%;background:var(--rec);transition:all .2s ease}
+.rec.on i{width:28px;height:28px;border-radius:7px}
+.big{width:50px;height:50px}
+
+/* contagem */
+#count{position:fixed;inset:0;z-index:8;display:grid;place-items:center;font-size:120px;font-weight:600;
+  font-variant-numeric:tabular-nums;text-shadow:0 2px 20px rgba(0,0,0,.6);pointer-events:none}
+
+/* folhas (sheets) */
+.sheet-bg{position:fixed;inset:0;z-index:20;background:rgba(0,0,0,.5);display:flex;align-items:flex-end}
+.sheet{width:100%;max-height:92%;display:flex;flex-direction:column;background:var(--panel);border-radius:18px 18px 0 0;
+  padding:8px max(16px,env(safe-area-inset-right,0px)) calc(env(safe-area-inset-bottom,0px) + 16px) max(16px,env(safe-area-inset-left,0px));
+  animation:up .22s ease-out}
+.sheet.tall{height:92%}
+@keyframes up{from{transform:translateY(30px);opacity:.4}}
+@media (prefers-reduced-motion:reduce){.sheet{animation:none}.timer::before{animation:none}.rec i{transition:none}}
+.grab{width:38px;height:5px;border-radius:3px;background:var(--line);margin:0 auto 10px}
+.sheet h2{font-size:17px;font-weight:600;margin:0}
+.sheet-head{display:flex;align-items:center;gap:8px;min-height:44px}
+.txt-btn{min-height:40px;padding:0 14px;border-radius:10px;font-weight:600;font-size:15px}
+.txt-btn.primary{background:var(--text);color:var(--ink)}
+.txt-btn.ghost{color:var(--cue)}
+.txt-btn.danger{color:var(--rec)}
+.txt-btn.danger.arm{background:var(--rec);color:#fff}
+
+.list{list-style:none;margin:6px 0 0;padding:0;overflow-y:auto;flex:1;min-height:0}
+.list li button{width:100%;text-align:left;padding:12px 4px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:3px}
+.list li b{font-weight:600;font-size:16px}
+.list li small{color:var(--muted);font-size:13px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.list li.cur b::after{content:"  em uso";color:var(--cue);font-size:12px;font-weight:500;letter-spacing:.04em}
+
+.field{width:100%;background:var(--ink);border:1px solid var(--line);border-radius:10px;color:var(--text);font:inherit}
+#edTitle{font-size:17px;font-weight:600;padding:10px 12px;margin-top:4px}
+#edText{flex:1;min-height:0;margin-top:10px;padding:12px;font-size:17px;line-height:1.5;resize:none;font-family:var(--font-read)}
+.meta{display:flex;justify-content:space-between;color:var(--muted);font-size:12.5px;padding:8px 2px 4px;font-variant-numeric:tabular-nums}
+.ed-actions{display:flex;gap:8px;justify-content:space-between;padding-top:6px}
+
+.rows{display:flex;flex-direction:column;gap:18px;padding:8px 2px 4px}
+.row label{display:flex;justify-content:space-between;font-size:14px;color:var(--muted);margin-bottom:8px}
+.row label output{color:var(--text);font-variant-numeric:tabular-nums}
+input[type=range]{width:100%;accent-color:var(--cue)}
+.toggle{display:flex;justify-content:space-between;align-items:center;font-size:15px}
+.toggle input{width:22px;height:22px;accent-color:var(--cue)}
+
+#resVideo{width:100%;max-height:58vh;border-radius:12px;background:#000;margin-top:6px}
+.res-actions{display:grid;gap:8px;margin-top:12px}
+.res-actions .txt-btn{min-height:48px}
+.hint{color:var(--muted);font-size:13px;line-height:1.45;margin:10px 2px 0}
+</style>
+</head>
+<body>
+
+<video id="cam" autoplay playsinline muted></video>
+<div id="camMsg" hidden><div><div id="camMsgText">Ligando a câmera…</div><button id="camRetry" hidden>Permitir câmera</button></div></div>
+
+<header class="top">
+  <button class="chip" id="openLib" aria-label="Escolher ou editar roteiro">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+    <span id="curTitle">Roteiro</span>
+  </button>
+  <div class="spacer"></div>
+  <div class="timer" id="timer" hidden>00:00</div>
+  <button class="icon-btn" id="openSet" aria-label="Ajustes do teleprompter">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
+  </button>
+</header>
+
+<section class="prompter" id="prompter">
+  <div class="scroller" id="scroller"><div class="script" id="script"></div></div>
+  <div class="cue"></div>
+</section>
+
+<footer class="bottom">
+  <div class="side">
+    <button class="icon-btn big" id="editNow" aria-label="Editar roteiro">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13 7l4 4"/></svg>
+    </button>
+    <button class="icon-btn big" id="playBtn" aria-label="Rolar texto">
+      <svg id="icPlay" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+      <svg id="icPause" viewBox="0 0 24 24" fill="currentColor" hidden><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg>
+    </button>
+  </div>
+  <button class="rec" id="recBtn" aria-label="Gravar"><i></i></button>
+  <div class="side right">
+    <button class="icon-btn big" id="restartBtn" aria-label="Voltar ao início do texto">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12a8 8 0 1 0 2.4-5.7"/><path d="M4 4v4h4"/></svg>
+    </button>
+    <button class="icon-btn big" id="flipBtn" aria-label="Trocar câmera">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><path d="M9 13a3 3 0 0 1 5-2.2M15 13a3 3 0 0 1-5 2.2"/><path d="M14 9v2h-2M10 17v-2h2"/></svg>
+    </button>
+  </div>
+</footer>
+
+<div id="count" hidden></div>
+
+<!-- Biblioteca de roteiros -->
+<div class="sheet-bg" id="libSheet" hidden>
+  <div class="sheet tall">
+    <div class="grab"></div>
+    <div class="sheet-head"><h2>Roteiros</h2><div class="spacer"></div>
+      <button class="txt-btn ghost" id="newScript">+ Novo</button>
+      <button class="txt-btn" data-close>Fechar</button></div>
+    <ul class="list" id="list"></ul>
+  </div>
+</div>
+
+<!-- Editor -->
+<div class="sheet-bg" id="edSheet" hidden>
+  <div class="sheet tall">
+    <div class="grab"></div>
+    <div class="sheet-head"><button class="txt-btn ghost" id="edBack">‹ Roteiros</button><div class="spacer"></div>
+      <button class="txt-btn primary" id="edDone">Usar</button></div>
+    <input class="field" id="edTitle" placeholder="Título do roteiro" autocomplete="off">
+    <textarea class="field" id="edText" placeholder="Cole ou escreva o roteiro aqui. Cada linha em branco vira um novo parágrafo."></textarea>
+    <div class="meta"><span id="edCount">0 palavras</span><span id="edTime">~0s falando</span></div>
+    <div class="ed-actions"><button class="txt-btn ghost" id="edPaste">Colar da área de transferência</button><button class="txt-btn danger" id="edDel">Excluir</button></div>
+  </div>
+</div>
+
+<!-- Ajustes -->
+<div class="sheet-bg" id="setSheet" hidden>
+  <div class="sheet">
+    <div class="grab"></div>
+    <div class="sheet-head"><h2>Ajustes</h2><div class="spacer"></div><button class="txt-btn" data-close>Fechar</button></div>
+    <div class="rows">
+      <div class="row"><label for="spd">Velocidade da rolagem <output id="spdOut"></output></label><input type="range" id="spd" min="10" max="160" step="2"></div>
+      <div class="row"><label for="size">Tamanho do texto <output id="sizeOut"></output></label><input type="range" id="size" min="20" max="60" step="1"></div>
+      <div class="row"><label for="hgt">Altura da faixa <output id="hgtOut"></output></label><input type="range" id="hgt" min="25" max="70" step="1"></div>
+      <div class="row"><label for="bga">Fundo do texto <output id="bgaOut"></output></label><input type="range" id="bga" min="0" max="90" step="5"></div>
+      <label class="toggle" for="auto">Rolar sozinho ao começar a gravar <input type="checkbox" id="auto"></label>
+      <label class="toggle" for="cd">Contagem de 3s antes de gravar <input type="checkbox" id="cd"></label>
+      <label class="toggle" for="flipTxt">Espelhar texto (para vidro de teleprompter) <input type="checkbox" id="flipTxt"></label>
+    </div>
+  </div>
+</div>
+
+<!-- Resultado -->
+<div class="sheet-bg" id="resSheet" hidden>
+  <div class="sheet">
+    <div class="grab"></div>
+    <div class="sheet-head"><h2>Vídeo gravado</h2><div class="spacer"></div><span id="resInfo" class="meta"></span></div>
+    <video id="resVideo" controls playsinline></video>
+    <div class="res-actions">
+      <button class="txt-btn primary" id="resSave">Salvar no iPhone</button>
+      <button class="txt-btn" id="resAgain">Descartar e gravar de novo</button>
+    </div>
+    <p class="hint">No menu que abrir, toque em <b>Salvar Vídeo</b> para mandar para o app Fotos.</p>
+  </div>
+</div>
+
+<script>
+(() => {
+  const $ = s => document.querySelector(s);
+  const KEY = 'prompter.v1';
+  const uid = () => Math.random().toString(36).slice(2, 10);
+
+  const SAMPLE = {
+    id: uid(), title: 'Exemplo — apague quando quiser',
+    text: 'Oi! Este é um roteiro de exemplo.\n\nToque no lápis para editar ou cole o seu texto.\n\nA setinha amarela marca a linha que você deve estar lendo. Deixe ela perto da câmera para o olhar parecer natural.\n\nAjuste a velocidade e o tamanho da letra no botão de ajustes, lá em cima à direita.\n\nQuando apertar o botão vermelho, o texto começa a rolar sozinho. Você também pode arrastar o texto com o dedo a qualquer momento.',
+    updated: Date.now()
+  };
+  const DEF = { scripts: [SAMPLE], currentId: SAMPLE.id, speed: 40, size: 32, height: 42, bga: 60, auto: true, countdown: true, flipText: false };
+
+  let S;
+  try { S = Object.assign({}, DEF, JSON.parse(localStorage.getItem(KEY) || 'null') || {}); } catch { S = { ...DEF }; }
+  if (!S.scripts.length) { S.scripts = [SAMPLE]; S.currentId = SAMPLE.id; }
+  const save = () => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch {} };
+  const cur = () => S.scripts.find(s => s.id === S.currentId) || S.scripts[0];
+
+  /* ---------- render do roteiro ---------- */
+  const scriptEl = $('#script'), scroller = $('#scroller');
+  const esc = t => t.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  function renderScript() {
+    const s = cur();
+    $('#curTitle').textContent = s.title || 'Sem título';
+    const paras = (s.text || '').split(/\n\s*\n|\n/).map(p => p.trim()).filter(Boolean);
+    scriptEl.innerHTML = paras.length ? paras.map(p => `<p>${esc(p)}</p>`).join('') : '<p class="empty">Roteiro vazio. Toque no lápis para escrever.</p>';
+  }
+  function applyLook() {
+    document.documentElement.style.setProperty('--prompter-h', S.height + 'vh');
+    document.documentElement.style.setProperty('--bg-a', (S.bga / 100).toFixed(2));
+    scriptEl.style.fontSize = S.size + 'px';
+    scriptEl.classList.toggle('flip', S.flipText);
+  }
+
+  /* ---------- rolagem ---------- */
+  let rolling = false, pos = 0, last = 0, touching = false, touchT;
+  const playIc = () => { $('#icPlay').hidden = rolling; $('#icPause').hidden = !rolling; };
+  function tick(t) {
+    if (!rolling) return;
+    const dt = Math.min(0.1, (t - last) / 1000); last = t;
+    if (!touching) {
+      pos += S.speed * dt;
+      scroller.scrollTop = pos;
+      if (scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 2) { stopRoll(); return; }
+    }
+    requestAnimationFrame(tick);
+  }
+  function startRoll() { if (rolling) return; rolling = true; pos = scroller.scrollTop; last = performance.now(); playIc(); requestAnimationFrame(tick); }
+  function stopRoll() { rolling = false; playIc(); }
+  scroller.addEventListener('touchstart', () => { touching = true; clearTimeout(touchT); }, { passive: true });
+  scroller.addEventListener('touchend', () => { touchT = setTimeout(() => { touching = false; pos = scroller.scrollTop; }, 700); }, { passive: true });
+  scroller.addEventListener('wheel', () => { pos = scroller.scrollTop; }, { passive: true });
+  $('#playBtn').onclick = () => rolling ? stopRoll() : startRoll();
+  $('#restartBtn').onclick = () => { scroller.scrollTop = 0; pos = 0; };
+
+  /* ---------- câmera ---------- */
+  const cam = $('#cam');
+  let stream = null, facing = 'user', wake = null;
+  function camMsg(text, retry) { $('#camMsg').hidden = !text; $('#camMsgText').textContent = text || ''; $('#camRetry').hidden = !retry; }
+  async function startCamera() {
+    if (stream) stream.getTracks().forEach(t => t.stop());
+    if (!navigator.mediaDevices?.getUserMedia) { camMsg('Este navegador não liberou a câmera. Abra pelo Safari em um endereço https.', false); return; }
+    camMsg('Ligando a câmera…');
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: facing, width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } },
+        audio: { echoCancellation: true, noiseSuppression: true }
+      });
+      cam.srcObject = stream;
+      cam.classList.toggle('mirror', facing === 'user');
+      await cam.play().catch(() => {});
+      camMsg('');
+      lockScreen();
+    } catch (e) {
+      camMsg(e.name === 'NotAllowedError'
+        ? 'A câmera ou o microfone foram bloqueados. No iPhone: Ajustes › Safari › Câmera e Microfone › Permitir, depois toque abaixo.'
+        : 'Não consegui abrir a câmera (' + e.name + ').', true);
+    }
+  }
+  async function lockScreen() { try { wake = await navigator.wakeLock?.request('screen'); } catch {} }
+  $('#camRetry').onclick = startCamera;
+  $('#flipBtn').onclick = () => { if (recording) return; facing = facing === 'user' ? 'environment' : 'user'; startCamera(); };
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && !recording) {
+      if (!stream || stream.getVideoTracks().some(t => t.readyState === 'ended')) startCamera(); else lockScreen();
+    }
+  });
+
+  /* ---------- gravação ---------- */
+  let rec = null, chunks = [], recording = false, t0 = 0, timerI, lastBlob = null, lastUrl = null, mime = '';
+  function pickMime() {
+    if (!window.MediaRecorder) return null;
+    for (const m of ['video/mp4;codecs=avc1,mp4a.40.2', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm'])
+      if (MediaRecorder.isTypeSupported?.(m)) return m;
+    return '';
+  }
+  const fmt = s => String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(Math.floor(s % 60)).padStart(2, '0');
+  function setRecUI(on) {
+    $('#recBtn').classList.toggle('on', on);
+    $('#recBtn').setAttribute('aria-label', on ? 'Parar gravação' : 'Gravar');
+    $('#timer').hidden = !on;
+    ['#flipBtn', '#editNow', '#openLib', '#openSet'].forEach(s => $(s).style.visibility = on ? 'hidden' : '');
+  }
+  async function countdown() {
+    if (!S.countdown) return;
+    const c = $('#count'); c.hidden = false;
+    for (let n = 3; n > 0; n--) { c.textContent = n; await new Promise(r => setTimeout(r, 1000)); }
+    c.hidden = true;
+  }
+  let busy = false;
+  async function startRec() {
+    if (!stream) { await startCamera(); if (!stream) return; }
+    mime = pickMime();
+    if (mime === null) { camMsg('Este navegador não grava vídeo. Atualize o iOS para a versão 14.3 ou mais nova.', false); return; }
+    busy = true;
+    scroller.scrollTop = 0; pos = 0; stopRoll();
+    await countdown();
+    chunks = [];
+    try { rec = new MediaRecorder(stream, mime ? { mimeType: mime, videoBitsPerSecond: 8e6 } : { videoBitsPerSecond: 8e6 }); }
+    catch { rec = new MediaRecorder(stream); }
+    mime = rec.mimeType || mime || 'video/mp4';
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = finishRec;
+    rec.start(1000);
+    recording = true; busy = false; t0 = Date.now();
+    setRecUI(true);
+    $('#timer').textContent = '00:00';
+    timerI = setInterval(() => { $('#timer').textContent = fmt((Date.now() - t0) / 1000); }, 250);
+    if (S.auto) startRoll();
+  }
+  function stopRec() { if (!recording) return; recording = false; clearInterval(timerI); stopRoll(); setRecUI(false); try { rec.stop(); } catch {} }
+  function finishRec() {
+    const type = (mime || 'video/mp4').split(';')[0];
+    lastBlob = new Blob(chunks, { type });
+    if (lastUrl) URL.revokeObjectURL(lastUrl);
+    lastUrl = URL.createObjectURL(lastBlob);
+    $('#resVideo').src = lastUrl;
+    const secs = (Date.now() - t0) / 1000;
+    $('#resInfo').textContent = fmt(secs) + ' · ' + (lastBlob.size / 1048576).toFixed(1) + ' MB';
+    open('#resSheet');
+  }
+  $('#recBtn').onclick = () => { if (busy) return; recording ? stopRec() : startRec(); };
+
+  $('#resSave').onclick = async () => {
+    if (!lastBlob) return;
+    const ext = lastBlob.type.includes('mp4') ? 'mp4' : 'webm';
+    const name = (cur().title || 'video').replace(/[^\w\- ]+/g, '').trim().slice(0, 40).replace(/\s+/g, '-') + '-' + new Date().toISOString().slice(0, 16).replace(/[:T]/g, '') + '.' + ext;
+    const file = new File([lastBlob], name, { type: lastBlob.type });
+    if (navigator.canShare?.({ files: [file] })) {
+      try { await navigator.share({ files: [file] }); } catch (e) { /* cancelado */ }
+    } else {
+      const a = document.createElement('a'); a.href = lastUrl; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+    }
+  };
+  $('#resAgain').onclick = () => { close('#resSheet'); $('#resVideo').removeAttribute('src'); };
+
+  /* ---------- folhas ---------- */
+  function open(sel) { $(sel).hidden = false; }
+  function close(sel) { $(sel).hidden = true; }
+  document.querySelectorAll('.sheet-bg').forEach(bg => {
+    bg.addEventListener('click', e => { if (e.target === bg && bg.id !== 'resSheet') { bg.hidden = true; if (bg.id === 'edSheet') { renderScript(); } } });
+    bg.querySelectorAll('[data-close]').forEach(b => b.onclick = () => bg.hidden = true);
+  });
+
+  /* biblioteca */
+  function renderList() {
+    const ul = $('#list'); ul.innerHTML = '';
+    [...S.scripts].sort((a, b) => b.updated - a.updated).forEach(s => {
+      const li = document.createElement('li'); if (s.id === S.currentId) li.className = 'cur';
+      const b = document.createElement('button');
+      const t = document.createElement('b'); t.textContent = s.title || 'Sem título';
+      const sm = document.createElement('small'); sm.textContent = (s.text || '').slice(0, 140) || 'Vazio';
+      b.append(t, sm); b.onclick = () => editScript(s.id);
+      li.append(b); ul.append(li);
+    });
+  }
+  $('#openLib').onclick = () => { renderList(); open('#libSheet'); };
+  $('#newScript').onclick = () => {
+    const s = { id: uid(), title: '', text: '', updated: Date.now() };
+    S.scripts.push(s); save(); editScript(s.id);
+  };
+
+  /* editor */
+  let editingId = null, delArm = false, delT;
+  function stats() {
+    const words = ($('#edText').value.trim().match(/\S+/g) || []).length;
+    $('#edCount').textContent = words + (words === 1 ? ' palavra' : ' palavras');
+    const secs = Math.round(words / 2.5); // ~150 palavras por minuto
+    $('#edTime').textContent = '~' + (secs >= 60 ? fmt(secs) + ' min' : secs + 's') + ' falando';
+  }
+  function editScript(id) {
+    editingId = id; const s = S.scripts.find(x => x.id === id);
+    $('#edTitle').value = s.title; $('#edText').value = s.text; stats();
+    resetDel(); close('#libSheet'); open('#edSheet');
+    if (!s.text) setTimeout(() => $('#edText').focus(), 250);
+  }
+  function persistEdit() {
+    const s = S.scripts.find(x => x.id === editingId); if (!s) return;
+    s.title = $('#edTitle').value; s.text = $('#edText').value; s.updated = Date.now(); save();
+  }
+  $('#edTitle').oninput = persistEdit;
+  $('#edText').oninput = () => { persistEdit(); stats(); };
+  $('#edBack').onclick = () => { close('#edSheet'); renderList(); open('#libSheet'); };
+  $('#edDone').onclick = () => {
+    const s = S.scripts.find(x => x.id === editingId);
+    if (s && !s.title.trim()) { s.title = (s.text.trim().split('\n')[0] || 'Sem título').slice(0, 40); save(); }
+    S.currentId = editingId; save(); close('#edSheet'); renderScript(); scroller.scrollTop = 0; pos = 0;
+  };
+  $('#editNow').onclick = () => editScript(cur().id);
+  $('#edPaste').onclick = async () => {
+    try {
+      const t = await navigator.clipboard.readText();
+      if (t) { const ta = $('#edText'); const a = ta.selectionStart, b = ta.selectionEnd; ta.value = ta.value.slice(0, a) + t + ta.value.slice(b); persistEdit(); stats(); }
+    } catch { $('#edText').focus(); }
+  };
+  function resetDel() { delArm = false; clearTimeout(delT); $('#edDel').classList.remove('arm'); $('#edDel').textContent = 'Excluir'; }
+  $('#edDel').onclick = () => {
+    if (!delArm) { delArm = true; $('#edDel').classList.add('arm'); $('#edDel').textContent = 'Toque de novo para excluir'; delT = setTimeout(resetDel, 3000); return; }
+    S.scripts = S.scripts.filter(x => x.id !== editingId);
+    if (!S.scripts.length) S.scripts.push({ id: uid(), title: 'Novo roteiro', text: '', updated: Date.now() });
+    if (!S.scripts.some(x => x.id === S.currentId)) S.currentId = S.scripts[0].id;
+    save(); resetDel(); close('#edSheet'); renderScript(); renderList(); open('#libSheet');
+  };
+
+  /* ajustes */
+  const bind = (id, key, out, suffix) => {
+    const el = $(id); el.value = S[key];
+    const show = () => $(out).textContent = S[key] + suffix;
+    el.oninput = () => { S[key] = +el.value; show(); applyLook(); save(); };
+    show();
+  };
+  bind('#spd', 'speed', '#spdOut', ' px/s');
+  bind('#size', 'size', '#sizeOut', ' pt');
+  bind('#hgt', 'height', '#hgtOut', '% da tela');
+  bind('#bga', 'bga', '#bgaOut', '%');
+  [['#auto', 'auto'], ['#cd', 'countdown'], ['#flipTxt', 'flipText']].forEach(([id, k]) => {
+    const el = $(id); el.checked = S[k]; el.onchange = () => { S[k] = el.checked; save(); applyLook(); };
+  });
+  $('#openSet').onclick = () => open('#setSheet');
+
+  /* ---------- início ---------- */
+  applyLook(); renderScript(); startCamera();
+})();
+</script>
+</body>
+</html>
